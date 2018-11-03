@@ -1,0 +1,24 @@
+library(rpivotTable)
+
+library(dplyr)
+
+library(readr)
+
+library(shiny)
+
+library(openxlsx)
+#ui
+
+ui = fluidPage(
+  
+  
+  fluidRow( rpivotTableOutput("pivot")))
+#server
+
+server = function(input, output) { 
+  
+  output$pivot <- renderRpivotTable(rpivotTable::rpivotTable(mtcars, rows = c( 
+    "vs","gear" ),cols=c("am","cyl"),vals =  "mpg", aggregatorName = "Sum",rendererName =  
+      "Table",width="50%", height="550px"))}
+
+shinyApp(ui = ui, server = server)
