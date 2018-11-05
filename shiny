@@ -1,0 +1,151 @@
+#Title: I don't want **columnnames / rownames to be repeated** in RpivotTable output when exported to csv/excel?
+
+# rPivotTable allows you to incorporate some custom javascript functions. In this case, we capture the HTML table that it displays anytime a change is made to the rPivotTable object
+# We 'scrape' the HTML table using the rvest library and convert it into a reactive. Specifically we use an eventReactive that triggers anytime the rPivotTable object changes
+# We use shiny's download handler to download the pivoted table
+
+library(rpivotTable)
+# consider using tidyverse library call to get dplyr, readr and rvest
+# library(tidyverse)
+library(dplyr)
+library(readr)
+# need rvest to be able to 'scrape' rPivotTable
+library(rvest)
+library(shiny)
+# library(openxlsx)
+# I really like how lightweight and versatile writexl is
+library(writexl)
+# need JS functionality in htmlwidgets
+library(htmlwidgets)
+library(shinyjs)
+
+#ui
+ui = fluidPage(
+  # for the purposes of this exercise, I'm only including csv and xlsx to simplify the download logic
+  # but you could certainly add more format options
+  radioButtons(inputId = "format", label = "Enter the format to download", 
+               choices = c( "excel"), inline = TRUE, selected = "csv"),
+  downloadButton(outputId = "download_pivot"),
+  fluidRow(rpivotTableOutput("pivot")))
+
+#server
+server = function (input, output) { 
+  
+  output$pivot <- renderRpivotTable(
+    rpivotTable(Titanic, rows = c("Class","Sex"), cols = c("Survived"), vals =  "Freq", aggregatorName = "Count",
+                rendererName = "Table", width="50%", height="550px",
+                onRefresh = htmlwidgets::JS(
+                  "function(config) {
+                  Shiny.onInputChange('pivot', document.getElementById('pivot').innerHTML); 
+}"))
+    )
+  
+  # create an eventReactive dataframe that regenerates anytime the pivot object changes
+  # wrapped in a tryCatch to only return table object. errors out when charts are shown
+  pivot_tbl <- eventReactive(input$pivot, {
+    tryCatch({
+      input$pivot %>%
+        read_html %>%
+        html_table(fill = TRUE) %>%
+        .[[2]]
+    }, error = function(e) {
+      return()
+    })
+  })
+  
+  # allow the user to download once the pivot_tbl object is available
+  observe({
+    if (is.data.frame(pivot_tbl()) && nrow(pivot_tbl()) > 0) {
+      shinyjs::enable("download_summary")
+    } else {
+      shinyjs::disable("download_summary")
+    }
+  })
+  
+  # using shiny's download handler to get the data output
+  output$download_pivot <- downloadHandler(
+    filename = function() {
+      if (input$format == "excel") {
+        "pivot.xlsx"
+      }
+    },
+    content = function(file) {
+    if (input$format == "excel") {  
+      
+      writePvt2Xlsx <- function(cols = c("Class","Sex", "Age"),
+                                rows = "Survived",
+                                URL = "C:/Users/Saad/Documents/titanic.html",
+                                outFile) {
+        if (missing(outFile)) {
+          outFile <- gsub('.html', "", basename(URL), ignore.case=TRUE)
+          outFile <- paste0(outFile, ".xlsx")    
+        }
+        
+        res <- htmltab(doc = URL, headerSep = " >> ",
+                       which = 2, rm_nodata_cols = FALSE)
+        
+        ## Remove Totals duplicate in last row
+        #res[nrow(res), 1:(length(rows)-1)] <- NA
+        
+        df <- data.frame(x = names(res))
+        if (!is.null(cols)) {
+          df <- df %>% separate(x, cols, sep = " >> ", fill = "left")
+        } 
+        
+        ## Create a new workbook
+        wb <- createWorkbook()
+        
+        ## Add a worksheet
+        addWorksheet(wb, "Sheet 1")
+        
+        ## Write data
+        writeData(wb, "Sheet 1", t(df), colNames = FALSE, rowNames = FALSE)
+        writeData(wb, "Sheet 1", res, startRow = ncol(df) + 1, colNames = FALSE, rowNames = FALSE)
+        
+        #-------------------
+        # Remove dulicate rows
+        if(!is.null(rows) & !is.null(cols)) {
+          for (i in ncol(df) + 1:nrow(res)) mergeCells(wb, "Sheet 1", cols = length(rows):(length(rows) + 1), rows = i)
+        }
+        
+        #--------------------
+        # Merge dulicate row names 
+        if (length(rows) > 1) {
+          for (rowth in 1:(length(rows) - 1)) {
+            rowvar <- rows[rowth] 
+            res2 <- unite_(res, rowvar, rows[1:rowth], sep = " >> ")
+            tar <- res2[, rowvar]
+            
+            for (levelth in levels(as.factor(tar))) {
+              mergeCells(wb, "Sheet 1", cols = rowth, rows = ncol(df) + which(tar %in% levelth))
+            }
+          }
+        }
+        
+        #-------------------
+        # Merge duplicate column names
+        if (length(cols) > 1) {
+          for (colth in 1:(length(cols) - 1)) {
+            colvar <- cols[colth]
+            df2 <- unite_(df, colvar, cols[1:colth], sep = " >> ")
+            tar <- df2[, colvar]
+            
+            varlevel <- levels(as.factor(tar))[!str_detect(levels(as.factor(tar)), "NA")]
+            for (levelth in varlevel) {
+              #tar <- df[, colth]
+              mergeCells(wb, "Sheet 1", cols = which(tar %in% levelth), rows = colth)
+            }
+          }
+        }
+        
+        
+        ## Save workbook
+        saveWorkbook(wb, outFile, overwrite = TRUE)
+      }
+      }
+    }
+  )
+  
+  }
+
+shinyApp(ui = ui, server = server)
