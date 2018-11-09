@@ -1,0 +1,11 @@
+# unable to get **Bar Chart** and **Sum** as RendererName and AggregatorName respectively
+
+
+rpivotTable(data =  mtcars, subtotal = FALSE,  rows = c( "cyl"),cols=c("carb"),
+            vals =  "mpg",
+            aggregatorName = "Sum",
+            rendererName =  "Table",
+            renderers = list(Table= htmlwidgets::JS('$.pivotUtilities.renderers["Table"]'),
+                             Bar_Chart = htmlwidgets::JS('$.pivotUtilities.renderers["Bar Chart"]')),
+            aggregators = list(Sum = htmlwidgets::JS('$.pivotUtilities.aggregators["Sum"]')),
+            width="50%", height="550px")
